@@ -187,7 +187,14 @@ export default function CategoriesPage() {
       `¿Seguro que quieres eliminar "${category.name}"?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
+
+    if (!businessId) {
+      setError("No se encontró tu negocio.");
+      return;
+    }
 
     setError("");
 
@@ -202,7 +209,15 @@ export default function CategoriesPage() {
       return;
     }
 
-    await loadCategories();
+    setCategories((currentCategories) =>
+      currentCategories.filter(
+        (item) => item.id !== category.id
+      )
+    );
+  }
+
+  function handleDeleteClick(category: Category) {
+    deleteCategory(category);
   }
 
   return (
@@ -240,7 +255,7 @@ export default function CategoriesPage() {
         </div>
       )}
 
-      {/* ESTADÍSTICA */}
+      {/* ESTADÍSTICAS */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-zinc-900/70 p-5">
           <p className="text-sm text-zinc-400">
@@ -327,25 +342,22 @@ export default function CategoriesPage() {
                 </div>
 
                 {/* ACCIONES */}
-                <div className="flex items-center gap-2">
+                <div className="relative z-20 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => startEditing(category)}
-                    className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                    className="pointer-events-auto rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
                   >
                     Editar
                   </button>
 
-            <button
-              type="button"
-                onClick={() => {
-                    alert("EL BOTÓN SÍ FUNCIONA");
-                        deleteCategory(category);
-                          }}
-                            className="rounded-xl border border-red-500/20 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
-                            >
-                              Eliminar
-                              </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteClick(category)}
+                    className="pointer-events-auto rounded-xl border border-red-500/20 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
+                  >
+                    Eliminar
+                  </button>
                 </div>
               </div>
             ))}

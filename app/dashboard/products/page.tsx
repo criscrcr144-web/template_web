@@ -5,9 +5,15 @@ import { createClient } from "@/lib/supabase";
 import { uploadBusinessImage } from "@/lib/supabase/storage";
 import ImageUploader from "@/components/dashboard/products/ImageUploader";
 
+type Category = {
+  id: string;
+  name: string;
+};
+
 type Product = {
   id: string;
   business_id: string;
+  category_id: string | null;
   name: string;
   description: string | null;
   price: number;
@@ -19,15 +25,18 @@ type Product = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [businessId, setBusinessId] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] =
+    useState<Product | null>(null);
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
   const [sku, setSku] = useState("");
+  const [categoryId, setCategoryId] = useState("");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -71,10 +80,25 @@ export default function ProductsPage() {
 
     setBusinessId(business.id);
 
+    const { data: categoryData, error: categoriesError } =
+      await supabase
+        .from("categories")
+        .select("id, name")
+        .eq("business_id", business.id)
+        .order("sort_order", { ascending: true });
+
+    if (categoriesError) {
+      setError(categoriesError.message);
+      setLoading(false);
+      return;
+    }
+
+    setCategories(categoryData ?? []);
+
     const { data: productData, error: productsError } = await supabase
       .from("products")
       .select(
-        "id, business_id, name, description, price, image_url, sku, is_available, is_featured"
+        "id, business_id, category_id, name, description, price, image_url, sku, is_available, is_featured"
       )
       .eq("business_id", business.id)
       .order("created_at", { ascending: false });
@@ -94,6 +118,7 @@ export default function ProductsPage() {
     setPrice("");
     setDescription("");
     setSku("");
+    setCategoryId("");
     setImageFile(null);
     setImagePreview(null);
     setEditingProduct(null);
@@ -107,6 +132,7 @@ export default function ProductsPage() {
     setPrice(String(product.price));
     setDescription(product.description ?? "");
     setSku(product.sku ?? "");
+    setCategoryId(product.category_id ?? "");
 
     setImageFile(null);
     setImagePreview(product.image_url);
@@ -141,8 +167,6 @@ export default function ProductsPage() {
     try {
       let imageUrl = editingProduct?.image_url ?? null;
 
-      // Si se seleccionó una nueva imagen,
-      // primero se comprime y después se sube.
       if (imageFile) {
         const uploadResult = await uploadBusinessImage(
           imageFile,
@@ -154,10 +178,10 @@ export default function ProductsPage() {
       }
 
       if (editingProduct) {
-        // EDITAR PRODUCTO
         const { error: updateError } = await supabase
           .from("products")
           .update({
+            category_id: categoryId || null,
             name: name.trim(),
             description: description.trim() || null,
             price: numericPrice,
@@ -172,11 +196,11 @@ export default function ProductsPage() {
           throw new Error(updateError.message);
         }
       } else {
-        // CREAR PRODUCTO
         const { error: insertError } = await supabase
           .from("products")
           .insert({
             business_id: businessId,
+            category_id: categoryId || null,
             name: name.trim(),
             description: description.trim() || null,
             price: numericPrice,
@@ -214,6 +238,11 @@ export default function ProductsPage() {
 
     if (!confirmed) return;
 
+    if (!businessId) {
+      setError("No se encontró tu negocio.");
+      return;
+    }
+
     setError("");
 
     const { error: deleteError } = await supabase
@@ -227,7 +256,13 @@ export default function ProductsPage() {
       return;
     }
 
-    await loadProducts();
+    setProducts((currentProducts) =>
+      currentProducts.filter((item) => item.id !== product.id)
+    );
+  }
+
+  function handleDeleteClick(product: Product) {
+    deleteProduct(product);
   }
 
   function openNewProductForm() {
@@ -240,6 +275,15 @@ export default function ProductsPage() {
 
     setShowForm(false);
     resetForm();
+  }
+
+  function getCategoryName(categoryId: string | null) {
+    if (!categoryId) return null;
+
+    return (
+      categories.find((category) => category.id === categoryId)?.name ??
+      null
+    );
   }
 
   return (
@@ -261,6 +305,7 @@ export default function ProductsPage() {
         </div>
 
         <button
+          type="button"
           onClick={openNewProductForm}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200"
         >
@@ -363,6 +408,7 @@ export default function ProductsPage() {
             </p>
 
             <button
+              type="button"
               onClick={openNewProductForm}
               className="mt-6 rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/10"
             >
@@ -371,83 +417,97 @@ export default function ProductsPage() {
           </div>
         ) : (
           <div className="divide-y divide-white/10">
-            {products.map((product) => (
-              <div
-                key={product.id}
-                className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center"
-              >
-                {/* IMAGEN */}
-                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
-                  {product.image_url ? (
-                    <img
-                      src={product.image_url}
-                      alt={product.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-2xl">
-                      📦
-                    </div>
-                  )}
-                </div>
+            {products.map((product) => {
+              const categoryName = getCategoryName(
+                product.category_id
+              );
 
-                {/* INFORMACIÓN */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-white">
-                      {product.name}
-                    </h3>
-
-                    {product.is_available ? (
-                      <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-400">
-                        Disponible
-                      </span>
+              return (
+                <div
+                  key={product.id}
+                  className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center"
+                >
+                  {/* IMAGEN */}
+                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
+                    {product.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
-                      <span className="rounded-full bg-red-400/10 px-2.5 py-1 text-xs text-red-400">
-                        Oculto
-                      </span>
+                      <div className="flex h-full w-full items-center justify-center text-2xl">
+                        📦
+                      </div>
                     )}
                   </div>
 
-                  {product.description && (
-                    <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
-                      {product.description}
+                  {/* INFORMACIÓN */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-white">
+                        {product.name}
+                      </h3>
+
+                      {product.is_available ? (
+                        <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-400">
+                          Disponible
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-red-400/10 px-2.5 py-1 text-xs text-red-400">
+                          Oculto
+                        </span>
+                      )}
+
+                      {categoryName && (
+                        <span className="rounded-full bg-lime-400/10 px-2.5 py-1 text-xs text-lime-400">
+                          {categoryName}
+                        </span>
+                      )}
+                    </div>
+
+                    {product.description && (
+                      <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+                        {product.description}
+                      </p>
+                    )}
+
+                    <p className="mt-2 text-lg font-semibold text-lime-400">
+                      ${Number(product.price).toFixed(2)}
                     </p>
-                  )}
 
-                  <p className="mt-2 text-lg font-semibold text-lime-400">
-                    ${Number(product.price).toFixed(2)}
-                  </p>
+                    {product.sku && (
+                      <p className="mt-1 text-xs text-zinc-600">
+                        SKU: {product.sku}
+                      </p>
+                    )}
+                  </div>
 
-                  {product.sku && (
-                    <p className="mt-1 text-xs text-zinc-600">
-                      SKU: {product.sku}
-                    </p>
-                  )}
+                  {/* ACCIONES */}
+                  <div className="relative z-20 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        startEditing(product)
+                      }
+                      className="pointer-events-auto rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                    >
+                      Editar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDeleteClick(product)
+                      }
+                      className="pointer-events-auto rounded-xl border border-red-500/20 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
-
-                {/* ACCIONES */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => startEditing(product)}
-                    className="rounded-xl border border-white/10 px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
-                  >
-                    Editar
-                  </button>
-
-                  <button
-                    type="button"
-                      onClick={() => {
-                          console.log("Botón eliminar presionado:", product.id);
-                              deleteProduct(product);
-                                }}
-                                  className="rounded-xl border border-red-500/20 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
-                                  >
-                                    Eliminar
-                                    </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -460,9 +520,7 @@ export default function ProductsPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-lime-400">
-                  {editingProduct
-                    ? "Editar"
-                    : "Nuevo"}
+                  {editingProduct ? "Editar" : "Nuevo"}
                 </p>
 
                 <h2 className="mt-1 text-xl font-semibold text-white">
@@ -519,6 +577,40 @@ export default function ProductsPage() {
                 />
               </div>
 
+              {/* CATEGORÍA */}
+              <div>
+                <label className="mb-2 block text-sm text-zinc-300">
+                  Categoría
+                </label>
+
+                <select
+                  value={categoryId}
+                  onChange={(event) =>
+                    setCategoryId(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none focus:border-white/30"
+                >
+                  <option value="">
+                    Sin categoría
+                  </option>
+
+                  {categories.map((category) => (
+                    <option
+                      key={category.id}
+                      value={category.id}
+                    >
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+
+                {categories.length === 0 && (
+                  <p className="mt-2 text-xs text-zinc-600">
+                    Todavía no tienes categorías creadas.
+                  </p>
+                )}
+              </div>
+
               {/* PRECIO + SKU */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -555,58 +647,57 @@ export default function ProductsPage() {
                   />
                 </div>
               </div>
-
-              {/* DESCRIPCIÓN */}
-              <div>
-                <label className="mb-2 block text-sm text-zinc-300">
-                  Descripción
-                </label>
-
-                <textarea
-                  rows={4}
-                  value={description}
-                  onChange={(event) =>
-                    setDescription(event.target.value)
-                  }
-                  placeholder="Describe brevemente el producto..."
-                  className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/30"
-                />
-              </div>
-
-              {/* ERROR */}
-              {error && (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                  {error}
-                </div>
-              )}
-
-              {/* BOTONES */}
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  disabled={saving}
-                  className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1 rounded-xl bg-lime-400 px-4 py-3 text-sm font-semibold text-black transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving
-                    ? "Guardando..."
-                    : editingProduct
-                    ? "Guardar cambios"
-                    : "Guardar producto"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+               {/* DESCRIPCIÓN */}
+                            <div>
+                              <label className="mb-2 block text-sm text-zinc-300">
+                                Descripción
+                              </label>
+              
+                              <textarea
+                                rows={4}
+                                value={description}
+                                onChange={(event) =>
+                                  setDescription(event.target.value)
+                                }
+                                placeholder="Describe brevemente el producto..."
+                                className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/30"
+                              />
+                            </div>
+              
+                            {/* ERROR */}
+                            {error && (
+                              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                                {error}
+                              </div>
+                            )}
+              
+                            {/* BOTONES */}
+                            <div className="flex gap-3 pt-2">
+                              <button
+                                type="button"
+                                onClick={closeForm}
+                                disabled={saving}
+                                className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
+                              >
+                                Cancelar
+                              </button>
+              
+                              <button
+                                type="submit"
+                                disabled={saving}
+                                className="flex-1 rounded-xl bg-lime-400 px-4 py-3 text-sm font-semibold text-black transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {saving
+                                  ? "Guardando..."
+                                  : editingProduct
+                                  ? "Guardar cambios"
+                                  : "Guardar producto"}
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
